@@ -1,0 +1,115 @@
+from machine import Pin, ADC, PWM
+import time
+
+#Pines
+potenciometro1 = ADC(Pin(34))
+potenciometro2 = ADC(Pin(35))
+potenciometro1.atten(ADC.ATTN_11DB)
+potenciometro2.atten(ADC.ATTN_11DB)
+
+servo1 = PWM(Pin(18), freq=50)
+servo2 = PWM(Pin(19), freq=50)
+
+led_manual = Pin(2, Pin.OUT)
+led_auto = Pin(4, Pin.OUT)
+
+buzzer = PWM(Pin(15), freq=1000)
+
+btn_inicio = Pin(25, Pin.IN, Pin.PULL_UP)
+btn_rutina = Pin(26, Pin.IN, Pin.PULL_UP)
+
+#Estados
+manual = 0
+auto_inicio = 1
+auto_rutina = 2
+
+estado = manual
+
+#Flags
+flag_inicio = False
+flag_rutina = False
+
+#Funciones
+def pos_servo(pwm, angulo):
+    duty = map_value(angulo, 0, 180, 26, 128)
+    pwm.duty(duty)
+
+def map_value(x, in_min, in_max, out_min, out_max):
+    return int((x - in_min)*(out_max - out_min)/(in_max - in_min) + out_min)
+
+#Interrupciones
+def irq_home(pin):
+    global flag_inicio
+    flag_inicio = True
+
+def irq_routine(pin):
+    global flag_rutina
+    flag_rutina = True
+
+btn_inicio.irq(trigger=Pin.IRQ_FALLING, handler=irq_home)
+btn_rutina.irq(trigger=Pin.IRQ_FALLING, handler=irq_routine)
+
+#Rutinas
+def go_home():
+    led_manual.value(0)
+    led_auto.value(1)
+    buzzer.duty(512)
+
+    for angulo in range(180, 0, -2):
+        pos_servo(servo1, angulo)
+        pos_servo(servo2, angulo)
+        time.sleep(0.02)
+
+    buzzer.duty(0)
+    led_auto.value(0)
+
+def routine():
+    led_manual.value(0)
+    led_auto.value(1)
+    buzzer.duty(512)
+
+    for i in range(0, 180, 5):
+        pos_servo(servo1, i)
+        pos_servo(servo2, 180 - i)
+        time.sleep(0.03)
+
+    for i in range(180, 0, -5):
+        pos_servo(servo1, i)
+        pos_servo(servo2, 180 - i)
+        time.sleep(0.03)
+
+    buzzer.duty(0)
+    led_auto.value(0)
+
+#Loop principal
+while True:
+
+    if flag_inicio:
+        estado = auto_inicio
+        flag_inicio = False
+
+    if flag_rutina:
+        estado = auto_rutina
+        flag_rutina = False
+
+    if estado == manual:
+        led_manual.value(1)
+
+        val1 = potenciometro1.read() # 12 bits
+        val2 = potenciometro2.read() >> 2 # 10 bits
+
+        ang1 = map_value(val1, 0, 4095, 0, 180)
+        ang2 = map_value(val2, 0, 1023, 0, 180)
+
+        pos_servo(servo1, ang1)
+        pos_servo(servo2, ang2)
+
+    elif estado == auto_inicio:
+        go_home()
+        estado = manual
+
+    elif estado == auto_rutina:
+        routine()
+        estado = manual
+
+    time.sleep(0.02)
